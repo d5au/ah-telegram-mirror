@@ -7,6 +7,7 @@ from datetime import datetime
 
 from ah_settings import settings
 from ah_settings import bmodes
+from vicinfo import VictimInfo, victim_from_json
 
 from termcolor import colored
 
@@ -55,7 +56,8 @@ tg = Telegram(
     settings['telegram']['api-key'],
     settings['telegram']['api-hash'],
     database_encryption_key=settings['telegram']['database-encryption-key'],
-    phone=settings['telegram']['phone']
+    phone=settings['telegram']['phone'],
+    default_workers_queue_size=10000
 )
 
 # login to telegram, you may have to input a 2fa-key
@@ -81,7 +83,7 @@ def user_by_id(user_id: int) -> User:
 
     res = user_req.update
 
-    if not 'username' in res:
+    if res == None or not 'username' in res:
         return None
 
     return User(
@@ -147,8 +149,6 @@ def message_by_id(chat_id, msg_id) -> Message:
     msg_req.wait()
 
     res = msg_req.update
-
-    print(res)
 
     return message_by_update(res)
 
@@ -274,6 +274,15 @@ def check_and_send_deleted_message(chat_id, message_id):
 
     # add to redis for statistical purposes
     redis.set(f"deleted-{chat_id}-{message_id}", json.dumps(msg.message_raw))
+
+    # Victim Info
+    vic_key = f"victim-info-{msg.author_id}"
+
+    if not redis.exists(vic_key):
+        info = VictimInfo(msg.author_id, msg.content_type, msg.content_text)
+        redis.publish("ah_user_notify", info.to_json())
+        
+    redis.set(vic_key, "true")
 
 def on_message_edit(update):
 
